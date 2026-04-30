@@ -457,7 +457,15 @@ let currentUser = "";
         setTimeout(() => s.remove(), 1500);
       }
     }
-
+if (window.firebaseReady && currentUser) {
+  window.saveProgressToFirebase({
+    username: currentUser,
+    time: seconds,
+    coins: coins,
+    completed: true,
+    date: new Date().toISOString()
+  });
+}
     function showCinematicEnding(finalSeconds, rewardText = "Victory") {
       const overlay = document.getElementById("cinematicOverlay");
       if (!overlay) return;
