@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SifirRia+ Production English</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="loginPage" class="login-page">
+    <form class="login-card" id="authForm">
+      <h1 class="login-title">SifirRia+</h1>
+      <p class="login-subtitle" id="loginSubtitle">Log in to start building 2-digit multiplication.</p>
+
+      <div class="auth-tabs">
+        <button type="button" id="loginTab" class="auth-tab active">LOGIN</button>
+        <button type="button" id="signupTab" class="auth-tab">SIGN UP</button>
+      </div>
+
+      <label class="login-label">Username</label>
+      <input class="login-input" id="username" placeholder="Example: student_01" />
+
+      <label class="login-label">Password</label>
+      <input class="login-input" id="password" type="password" placeholder="Enter password" />
+
+      <div id="signupFields" class="hidden">
+<label class="login-label">Confirm password</label>
+        <input class="login-input" id="confirmPassword" type="password" placeholder="Retype password" />
+      </div>
+
+      <button type="submit" class="login-button" id="authButton">LOGIN</button>
+      <div class="login-error" id="loginError"></div>
+      <div class="login-hint">Demo login: username <b>demo</b>, password <b>1234</b>. New users can sign up without email verification.</div>
+    </form>
+  </div>
+
+  <div id="app" class="app hidden">
+    <div class="top-bar">
+      <div></div>
+      <div class="banner-wrap">
+        <div class="banner-img">
+          <svg viewBox="0 0 800 200" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <linearGradient id="g1" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0%" stop-color="#14b8a6"/>
+                <stop offset="100%" stop-color="#0ea5e9"/>
+              </linearGradient>
+            </defs>
+            <rect x="0" y="0" width="800" height="200" rx="40" fill="url(#g1)" />
+            <text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-size="72" font-weight="900" fill="#ffffff" font-family="Arial">SifirRia+</text>
+            <text x="50%" y="75%" dominant-baseline="middle" text-anchor="middle" font-size="24" font-weight="700" fill="#e0f2fe" font-family="Arial">Learn Multiplication, Enjoy Every Day!</text>
+          </svg>
+        </div>
+      </div>
+      <div style="display:flex;gap:10px;align-items:center;">
+        <div class="welcome-card" id="welcomeCard">Welcome</div>
+        <button class="logout-button" id="logoutButton">LOG OUT</button>
+      </div>
+    </div>
+
+    <div class="stats-row">
+      <div class="stat-box" id="timeBox">⏱️ Time: 0s</div>
+      <div class="stat-box coin" id="coinBox">🪙 Coin: 0</div>
+      <div class="progress-box" id="todayBox">📅 Today: 0 sets</div>
+      <button class="tutorial-main-button" id="tutorialButton" type="button">📘 TUTORIAL</button>
+    </div>
+
+    <div class="game-dashboard" id="gameDashboard">
+      <div class="game-card">
+        <div class="game-card-title">Player Level</div>
+        <div class="level-line"><span id="levelText">Level 1</span><span id="xpText">0 XP</span></div>
+        <div class="xp-track"><div class="xp-fill" id="xpFill"></div></div>
+      </div>
+      <div class="game-card">
+        <div class="game-card-title">Current Mission</div>
+        <div class="mission-text" id="missionText">Choose two numbers to start your mission.</div>
+        <div class="mission-badge" id="missionBadge">Ready</div>
+      </div>
+      <div class="game-card">
+        <div class="game-card-title">Best Record</div>
+        <div class="record-text" id="recordText">No sifir selected yet.</div>
+      </div>
+    </div>
+
+    <div id="finishMessage" class="finish-message hidden"></div>
+
+    <div class="main-layout">
+      <div class="selector-panel">
+        <div id="selectorTitle" class="selector-title">Choose Numbers</div>
+
+        <div class="selector-label">First Number</div>
+        <div class="sifir-grid" id="firstGrid"></div>
+
+        <div class="selector-divider"></div>
+
+        <div class="selector-label">Second Number</div>
+        <div class="sifir-grid" id="secondGrid"></div>
+
+        <button class="reset-button" id="resetButton">RESET</button>
+      </div>
+
+      <div class="bones-area">
+        <div class="bone-column" id="firstBone"></div>
+        <div class="bone-column" id="secondBone"></div>
+      </div>
+
+      <div class="answer-area">
+        <div class="answer-heading" id="answerHeading"></div>
+        <div class="answer-list" id="answerList"></div>
+      </div>
+    </div>
+
+    <div class="note">Coins are awarded only after all answers are correct. First clear earns coins. After that, beat your best time to earn coins again. Each sifir has a 2-time coin reward limit.</div>
+    <div class="mobile-scroll-spacer" aria-hidden="true"></div>
+  </div>
+
+
+
+  <div id="cinematicOverlay" class="cinematic-overlay hidden" aria-live="polite">
+    <div class="cinematic-card">
+      <div class="cinematic-trophy">🏆</div>
+      <div class="cinematic-title">Champion!</div>
+      <div class="cinematic-subtitle">All answers are correct!</div>
+      <div class="cinematic-score-row">
+        <div class="cinematic-score-box">Time<span id="cinematicTime">0s</span></div>
+        <div class="cinematic-score-box">Reward<span id="cinematicReward">Victory</span></div>
+      </div>
+      <button id="cinematicCloseButton" class="cinematic-close-button" type="button">Continue</button>
+    </div>
+  </div>
+
+  <div id="progressModal" class="progress-modal hidden">
+    <div id="progressContent" class="progress-content"></div>
+  </div>
+
+  <div id="tutorialModal" class="tutorial-overlay hidden">
+    <div class="tutorial-panel" role="dialog" aria-modal="true" aria-labelledby="tutorialTitle">
+      <div class="tutorial-top">
+        <h2 id="tutorialTitle">📘 Interactive Tutorial: SifirRia+</h2>
+        <button class="tutorial-close-button" id="tutorialCloseButton" type="button">×</button>
+      </div>
+
+      <div class="tutorial-progress-line" id="tutorialProgressLine"></div>
+
+      <div class="tutorial-content-grid">
+        <div class="tutorial-text-card">
+          <h3 id="tutorialStepTitle">Tutorial Step</h3>
+          <p id="tutorialStepText"></p>
+          <div id="tutorialStepWarning" class="tutorial-warning hidden"></div>
+        </div>
+
+        <div class="tutorial-demo-card">
+          <div class="tutorial-mini-title" id="tutorialDemoTitle">Demo</div>
+          <div class="tutorial-mini-row" id="tutorialDemoRow"></div>
+          <div class="tutorial-note-small" id="tutorialDemoNote"></div>
+        </div>
+      </div>
+
+      <div class="tutorial-control-row">
+        <button class="tutorial-nav-button" id="tutorialPrevButton" type="button">← Previous</button>
+        <div class="tutorial-step-label" id="tutorialStepLabel">1 / 5</div>
+        <button class="tutorial-nav-button primary" id="tutorialNextButton" type="button">Next →</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="script.js"></script>
+
+<!-- FIREBASE START -->
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/12.12.1/firebase-app.js";
+  import {
+    getFirestore,
+    doc,
+    setDoc,
+    getDoc,
+    collection,
+    addDoc,
+    getDocs,
+    serverTimestamp
+  } from "https://www.gstatic.com/firebasejs/12.12.1/firebase-firestore.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyDei0mAKFVERNQ3Lb7iQ9yy5I8ubUcAC-0",
+    authDomain: "sifirriaplus.firebaseapp.com",
+    projectId: "sifirriaplus",
+    storageBucket: "sifirriaplus.firebasestorage.app",
+    messagingSenderId: "958787527467",
+    appId: "1:958787527467:web:059b23b727ca688aa99b6e",
+    measurementId: "G-XM09439NLQ"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const db = getFirestore(app);
+  window.firebaseReady = true;
+
+  function safeId(value) {
+    return String(value || "unknown_user").trim().replace(/[\/.#$\[\]]/g, "_") || "unknown_user";
+  }
+
+  function dateOnly(value) {
+    try {
+      if (!value) return new Date().toISOString().slice(0, 10);
+      if (typeof value === "string") return value.slice(0, 10);
+      if (value.toDate) return value.toDate().toISOString().slice(0, 10);
+      return new Date(value).toISOString().slice(0, 10);
+    } catch {
+      return new Date().toISOString().slice(0, 10);
+    }
+  }
+
+  async function buildSummaryFromProgressLogs(safeUsername) {
+    const progress = {};
+    const coinProgress = {};
+    const sifirRecords = {};
+    let totalCoinsFromLogs = 0;
+    let totalXpFromLogs = 0;
+    let latestLog = null;
+
+    try {
+      const logsSnap = await getDocs(collection(db, "users", safeUsername, "progressLogs"));
+      logsSnap.forEach((docSnap) => {
+        const log = docSnap.data() || {};
+        latestLog = log;
+
+        if (log.action === "completed_game" || log.completed === true) {
+          const d = dateOnly(log.completedAt || log.createdAt || log.date);
+          progress[d] = (progress[d] || 0) + 1;
+
+          const coinsAwarded = Number(log.coinsAwarded || 0);
+          const xpAwarded = Number(log.xpAwarded || 0);
+          coinProgress[d] = (coinProgress[d] || 0) + coinsAwarded;
+          totalCoinsFromLogs += coinsAwarded;
+          totalXpFromLogs += xpAwarded;
+
+          const sifir = String(log.sifir || "");
+          if (sifir) {
+            if (!sifirRecords[sifir]) {
+              sifirRecords[sifir] = {
+                bestTime: Number(log.bestTime || log.time || 0) || null,
+                rewards: Number(log.rewardsUsed || 0),
+                attempts: 0,
+                completed: 0
+              };
+            }
+
+            sifirRecords[sifir].completed = Number(sifirRecords[sifir].completed || 0) + 1;
+            sifirRecords[sifir].attempts = Number(sifirRecords[sifir].attempts || 0) + 1;
+
+            const t = Number(log.time || 0);
+            if (t > 0 && (!sifirRecords[sifir].bestTime || t < sifirRecords[sifir].bestTime)) {
+              sifirRecords[sifir].bestTime = t;
+            }
+
+            sifirRecords[sifir].rewards = Math.max(
+              Number(sifirRecords[sifir].rewards || 0),
+              Number(log.rewardsUsed || 0)
+            );
+          }
+        }
+      });
+    } catch (error) {
+      console.warn("Could not rebuild from progressLogs:", error);
+    }
+
+    return {
+      progress,
+      coinProgress,
+      sifirRecords,
+      totalCoinsFromLogs,
+      totalXpFromLogs,
+      latestLog
+    };
+  }
+
+  async function readMergedUserData(username) {
+    const cleanUsername = String(username || "").trim();
+    const safeUsername = safeId(cleanUsername);
+
+    const accountRef = doc(db, "accounts", safeUsername);
+    const userRef = doc(db, "users", safeUsername);
+
+    const accountSnap = await getDoc(accountRef);
+    const userSnap = await getDoc(userRef);
+
+    const account = accountSnap.exists() ? accountSnap.data() : {};
+    const userData = userSnap.exists() ? userSnap.data() : {};
+    const lastData = userData.lastData || {};
+    const rebuilt = await buildSummaryFromProgressLogs(safeUsername);
+
+    const mergedProgress = Object.keys(account.progress || {}).length ? account.progress : rebuilt.progress;
+    const mergedCoinProgress = Object.keys(account.coinProgress || {}).length ? account.coinProgress : rebuilt.coinProgress;
+    const mergedSifirRecords = Object.keys(account.sifirRecords || {}).length ? account.sifirRecords : rebuilt.sifirRecords;
+
+    const coins = Math.max(
+      Number(account.coins || 0),
+      Number(lastData.coins || 0),
+      Number(rebuilt.totalCoinsFromLogs || 0)
+    );
+
+    const xp = Math.max(
+      Number(account.xp || 0),
+      Number(lastData.xp || lastData.xpAwarded || 0),
+      Number(rebuilt.totalXpFromLogs || 0)
+    );
+
+    return {
+      ...account,
+      username: account.username || lastData.username || cleanUsername,
+      coins,
+      xp,
+      level: Number(account.level || Math.floor(xp / 100) + 1),
+      progress: mergedProgress,
+      coinProgress: mergedCoinProgress,
+      sifirRecords: mergedSifirRecords,
+      lastData
+    };
+  }
+
+  window.registerAccountFirebase = async function(username, password) {
+    try {
+      const cleanUsername = String(username || "").trim();
+      const safeUsername = safeId(cleanUsername);
+      const accountRef = doc(db, "accounts", safeUsername);
+      const accountSnap = await getDoc(accountRef);
+
+      if (accountSnap.exists()) {
+        return { ok: false, message: "Account already exists." };
+      }
+
+      await setDoc(accountRef, {
+        username: cleanUsername,
+        password: String(password || ""),
+        coins: 0,
+        xp: 0,
+        level: 1,
+        progress: {},
+        coinProgress: {},
+        sifirRecords: {},
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      });
+
+      return { ok: true, message: "Account created. Please log in." };
+    } catch (error) {
+      console.error("Firebase register failed", error);
+      return { ok: false, message: "Register failed: " + error.message };
+    }
+  };
+
+  window.loginAccountFirebase = async function(username, password) {
+    try {
+      const cleanUsername = String(username || "").trim();
+      const safeUsername = safeId(cleanUsername);
+      const accountRef = doc(db, "accounts", safeUsername);
+      const userRef = doc(db, "users", safeUsername);
+
+      const accountSnap = await getDoc(accountRef);
+
+      if (!accountSnap.exists()) {
+        const oldUserSnap = await getDoc(userRef);
+
+        if (oldUserSnap.exists()) {
+          const recovered = await readMergedUserData(cleanUsername);
+
+          await setDoc(accountRef, {
+            username: cleanUsername,
+            password: String(password || ""),
+            coins: Number(recovered.coins || 0),
+            xp: Number(recovered.xp || 0),
+            level: Number(recovered.level || 1),
+            progress: recovered.progress || {},
+            coinProgress: recovered.coinProgress || {},
+            sifirRecords: recovered.sifirRecords || {},
+            recoveredFromOldUserData: true,
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp()
+          }, { merge: true });
+
+          return { ok: true, username: cleanUsername, account: recovered };
+        }
+
+        return { ok: false, message: "Account does not exist. Please SIGN UP first." };
+      }
+
+      const accountRaw = accountSnap.data();
+      if (String(accountRaw.password) !== String(password || "")) {
+        return { ok: false, message: "Wrong password." };
+      }
+
+      const mergedAccount = await readMergedUserData(cleanUsername);
+
+      await setDoc(accountRef, {
+        coins: Number(mergedAccount.coins || 0),
+        xp: Number(mergedAccount.xp || 0),
+        level: Number(mergedAccount.level || 1),
+        progress: mergedAccount.progress || {},
+        coinProgress: mergedAccount.coinProgress || {},
+        sifirRecords: mergedAccount.sifirRecords || {},
+        updatedAt: serverTimestamp()
+      }, { merge: true });
+
+      return { ok: true, username: mergedAccount.username || cleanUsername, account: mergedAccount };
+    } catch (error) {
+      console.error("Firebase login failed", error);
+      return { ok: false, message: "Login failed: " + error.message };
+    }
+  };
+
+  window.getFirebaseSyncData = async function(username) {
+    try {
+      const account = await readMergedUserData(username);
+      return { ok: true, account };
+    } catch (error) {
+      console.error("Firebase sync read failed", error);
+      return { ok: false, account: null, message: error.message };
+    }
+  };
+
+  window.syncAccountToFirebase = async function(username, data) {
+    try {
+      const safeUsername = safeId(username);
+      await setDoc(doc(db, "accounts", safeUsername), {
+        ...data,
+        updatedAt: serverTimestamp()
+      }, { merge: true });
+      console.log("Account synced to Firebase", data);
+      return true;
+    } catch (error) {
+      console.error("Account sync failed", error);
+      return false;
+    }
+  };
+
+  window.saveProgressToFirebase = async function(data) {
+    try {
+      const username = String(data.username || "unknown_user").trim() || "unknown_user";
+      const safeUsername = safeId(username);
+
+      await setDoc(doc(db, "users", safeUsername), {
+        username: username,
+        lastAction: data.action || "progress",
+        lastUpdated: serverTimestamp(),
+        lastData: data
+      }, { merge: true });
+
+      await addDoc(collection(db, "users", safeUsername, "progressLogs"), {
+        ...data,
+        createdAt: serverTimestamp()
+      });
+
+      console.log("Progress saved to Firebase", data);
+      return true;
+    } catch (error) {
+      console.error("Firebase save failed", error);
+      alert("Firebase save failed: " + error.message);
+      return false;
+    }
+  };
+</script>
+<!-- FIREBASE END -->
+
+</body>
+</html>
