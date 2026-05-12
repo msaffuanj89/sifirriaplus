@@ -131,21 +131,34 @@ function playWelcomeSound() {
   } catch {}
 }
 
-function showWelcomeThen(role, callback) {
+function hideSessionPages() {
   const loginPage = $("loginPage");
   const appPage = $("app");
   const teacherPage = $("teacherDashboard");
-  const welcomePage = $("welcomePage");
-  const roleText = $("welcomeRoleText");
+  const adminPage = $("adminDashboard");
+  const studentActivityPage = $("studentActivityPage");
+  const studentChallengePage = $("studentChallengePage");
 
   if (loginPage) loginPage.classList.add("hidden");
   if (appPage) appPage.classList.add("hidden");
   if (teacherPage) teacherPage.classList.add("hidden");
+  if (adminPage) adminPage.classList.add("hidden");
+  if (studentActivityPage) studentActivityPage.classList.add("hidden");
+  if (studentChallengePage) studentChallengePage.classList.add("hidden");
+}
+
+function showWelcomeThen(role, callback) {
+  const welcomePage = $("welcomePage");
+  const roleText = $("welcomeRoleText");
+
+  hideSessionPages();
 
   if (roleText) {
-    roleText.textContent = role === "teacher"
-      ? "Preparing your Teacher Dashboard..."
-      : "Preparing your learning mission...";
+    roleText.textContent = role === "admin"
+      ? "Preparing your Admin Dashboard..."
+      : role === "teacher"
+        ? "Preparing your Teacher Dashboard..."
+        : "Preparing your learning mission...";
   }
 
   if (welcomePage) welcomePage.classList.remove("hidden");
@@ -160,18 +173,22 @@ function showWelcomeThen(role, callback) {
 
 let currentAccountRole = "student";
 let currentAccountData = null;
+let currentStudentDisplayName = "";
+let studentLoginSyncedFor = "";
 
 function toggleSignupRoleFields() {
   const role = $("accountType") ? $("accountType").value : "student";
 
-  const teacherWrap = $("teacherCodeWrap");
   const studentWrap = $("studentClassCodeWrap");
+  const teacherTenBoxFields = document.querySelectorAll(".teacher-tenbox-field");
 
   const classInput = $("studentClass");
   const classLabel = classInput ? classInput.previousElementSibling : null;
 
-  if (teacherWrap) teacherWrap.classList.toggle("hidden", role !== "teacher");
   if (studentWrap) studentWrap.classList.toggle("hidden", role !== "student");
+  teacherTenBoxFields.forEach((field) => {
+    if (field) field.classList.toggle("hidden", role !== "teacher");
+  });
 
   // Hide Class / Grade for teacher accounts
   if (classInput) classInput.classList.toggle("hidden", role !== "student");
@@ -186,8 +203,46 @@ document.addEventListener("change", (event) => {
 
 function showStudentApp(user, displayName) {
   showWelcomeThen("student", () => {
-    login(user, displayName);
+    showStudentActivityPage(user, displayName);
   });
+}
+
+function prepareStudentSession(user, displayName) {
+  currentUser = user || currentUser;
+  window.currentUser = currentUser;
+  currentStudentDisplayName = displayName || currentStudentDisplayName || currentUser;
+  currentAccountRole = "student";
+  window.currentAccountRole = currentAccountRole;
+
+  if (studentLoginSyncedFor !== currentUser) {
+    saveToFirebaseSafe({
+      username: currentUser,
+      action: "login",
+      loggedInAt: new Date().toISOString()
+    });
+
+    syncCurrentAccountToFirebase({
+      lastLoginAt: new Date().toISOString()
+    });
+    studentLoginSyncedFor = currentUser;
+  }
+
+  coins = Number(coins || totalCoins());
+  if ($("welcomeCard")) $("welcomeCard").textContent = "Welcome " + currentStudentDisplayName;
+  if ($("studentActivityWelcome")) $("studentActivityWelcome").textContent = "Welcome " + currentStudentDisplayName;
+}
+
+function showStudentActivityPage(user, displayName) {
+  prepareStudentSession(user, displayName);
+  hideSessionPages();
+  const page = $("studentActivityPage");
+  if (page) page.classList.remove("hidden");
+}
+
+function showStudentChallengePage() {
+  hideSessionPages();
+  const page = $("studentChallengePage");
+  if (page) page.classList.remove("hidden");
 }
 
 
@@ -199,9 +254,9 @@ async function showTeacherDashboard(account) {
 
 async function showTeacherDashboardReal(account) {
   currentAccountRole = "teacher";
+  window.currentAccountRole = currentAccountRole;
   currentAccountData = account || {};
-  $("loginPage").classList.add("hidden");
-  $("app").classList.add("hidden");
+  hideSessionPages();
   const dash = $("teacherDashboard");
   if (dash) dash.classList.remove("hidden");
 
@@ -250,6 +305,352 @@ async function loadTeacherDashboard() {
   }
 
   renderTeacherStudents(result.students || []);
+}
+
+let adminDashboardDataCache = { users: [], classes: [] };
+
+function adminEsc(value) {
+  return String(value ?? "").replace(/[&<>"']/g, (s) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;"
+  }[s]));
+}
+
+function adminText(value) {
+  const text = String(value ?? "").trim();
+  return text || "-";
+}
+
+function adminActiveDaysCount(user) {
+  if (user && user.activeDays instanceof Set) return user.activeDays.size;
+  const progress = (user && user.progress) || {};
+  return Object.keys(progress).filter((d) => Number(progress[d] || 0) > 0).length;
+}
+
+function normalizeAdminUser(user) {
+  const raw = user || {};
+  const summary = buildFastStudentSummary(raw);
+  const role = String(raw.role || summary.role || "student").toLowerCase();
+  const activeDaysCount = adminActiveDaysCount(summary);
+  const totalAttempts = Number(summary.totalAttempts || 0);
+  const activeScore = Number(summary.activeScore || raw.activeScore || 0);
+
+  return {
+    ...summary,
+    role,
+    activeDaysCount,
+    totalAttempts,
+    activeScore,
+    isLearningActive: totalAttempts > 0 || activeDaysCount > 0 || activeScore > 0
+  };
+}
+
+function adminSchoolKey(schoolName, stateName) {
+  return [
+    String(schoolName || "Not stated").trim().toLowerCase(),
+    String(stateName || "Not stated").trim().toLowerCase()
+  ].join("|");
+}
+
+function ensureAdminSchool(map, schoolName, stateName) {
+  const school = adminText(schoolName === "-" ? "" : schoolName);
+  const state = adminText(stateName === "-" ? "" : stateName);
+  const key = adminSchoolKey(school, state);
+
+  if (!map.has(key)) {
+    map.set(key, {
+      schoolName: school,
+      stateName: state,
+      teacherNames: new Set(),
+      studentNames: new Set(),
+      classCodes: new Set(),
+      activeStudents: 0,
+      totalAttempts: 0,
+      activeScore: 0
+    });
+  }
+
+  return map.get(key);
+}
+
+function buildAdminDashboardModel(users, classes) {
+  const normalizedUsers = (users || []).map(normalizeAdminUser);
+  const students = normalizedUsers.filter((u) => u.role === "student");
+  const teachers = normalizedUsers.filter((u) => u.role === "teacher");
+  const schoolMap = new Map();
+  const teacherMap = new Map();
+
+  teachers.forEach((teacher) => {
+    const username = teacher.username || teacher.fullName || "teacher";
+    teacherMap.set(username, {
+      username,
+      name: teacher.fullName || teacher.username || username,
+      schoolName: teacher.schoolName || "Not stated",
+      stateName: teacher.stateName || "Not stated",
+      classes: new Set(),
+      students: new Set(),
+      activeStudents: 0,
+      totalAttempts: 0,
+      activeScore: 0
+    });
+
+    const school = ensureAdminSchool(schoolMap, teacher.schoolName, teacher.stateName);
+    school.teacherNames.add(username);
+  });
+
+  const classesByCode = new Map();
+  (classes || []).forEach((classItem) => {
+    const classCode = String(classItem.classCode || "").trim().toUpperCase();
+    if (!classCode) return;
+    classesByCode.set(classCode, classItem);
+
+    const school = ensureAdminSchool(schoolMap, classItem.schoolName, classItem.stateName);
+    school.classCodes.add(classCode);
+    if (classItem.teacherUsername) school.teacherNames.add(String(classItem.teacherUsername));
+
+    const teacherUsername = classItem.teacherUsername || "";
+    if (teacherUsername && !teacherMap.has(teacherUsername)) {
+      teacherMap.set(teacherUsername, {
+        username: teacherUsername,
+        name: teacherUsername,
+        schoolName: classItem.schoolName || "Not stated",
+        stateName: classItem.stateName || "Not stated",
+        classes: new Set(),
+        students: new Set(),
+        activeStudents: 0,
+        totalAttempts: 0,
+        activeScore: 0
+      });
+    }
+    if (teacherUsername) teacherMap.get(teacherUsername).classes.add(classCode);
+  });
+
+  students.forEach((student) => {
+    const classCode = String(student.classCode || "").trim().toUpperCase();
+    const classInfo = classesByCode.get(classCode) || {};
+    const schoolName = student.schoolName || classInfo.schoolName || "Not stated";
+    const stateName = student.stateName || classInfo.stateName || "Not stated";
+    const teacherUsername = student.teacherUsername || classInfo.teacherUsername || "";
+    const studentKey = student.username || student.fullName || "student";
+
+    const school = ensureAdminSchool(schoolMap, schoolName, stateName);
+    school.studentNames.add(studentKey);
+    if (classCode) school.classCodes.add(classCode);
+    if (teacherUsername) school.teacherNames.add(String(teacherUsername));
+    if (student.isLearningActive) school.activeStudents += 1;
+    school.totalAttempts += Number(student.totalAttempts || 0);
+    school.activeScore += Number(student.activeScore || 0);
+
+    if (teacherUsername) {
+      if (!teacherMap.has(teacherUsername)) {
+        teacherMap.set(teacherUsername, {
+          username: teacherUsername,
+          name: teacherUsername,
+          schoolName,
+          stateName,
+          classes: new Set(),
+          students: new Set(),
+          activeStudents: 0,
+          totalAttempts: 0,
+          activeScore: 0
+        });
+      }
+      const teacher = teacherMap.get(teacherUsername);
+      if (classCode) teacher.classes.add(classCode);
+      teacher.students.add(studentKey);
+      if (student.isLearningActive) teacher.activeStudents += 1;
+      teacher.totalAttempts += Number(student.totalAttempts || 0);
+      teacher.activeScore += Number(student.activeScore || 0);
+    }
+  });
+
+  const schoolRows = Array.from(schoolMap.values()).map((school) => ({
+    ...school,
+    teachers: school.teacherNames.size,
+    students: school.studentNames.size,
+    classes: school.classCodes.size
+  })).sort((a, b) =>
+    Number(b.activeScore || 0) - Number(a.activeScore || 0)
+    || Number(b.totalAttempts || 0) - Number(a.totalAttempts || 0)
+    || Number(b.activeStudents || 0) - Number(a.activeStudents || 0)
+  );
+
+  const activeStudents = students
+    .filter((student) => student.isLearningActive)
+    .sort((a, b) => Number(b.activeScore || 0) - Number(a.activeScore || 0));
+
+  const teacherRows = Array.from(teacherMap.values()).map((teacher) => ({
+    ...teacher,
+    classCount: teacher.classes.size,
+    studentCount: teacher.students.size
+  })).sort((a, b) =>
+    Number(b.activeScore || 0) - Number(a.activeScore || 0)
+    || Number(b.studentCount || 0) - Number(a.studentCount || 0)
+  );
+
+  const activeTeachers = teacherRows.filter((teacher) =>
+    teacher.classCount > 0 || teacher.studentCount > 0 || teacher.totalAttempts > 0
+  );
+
+  return {
+    users: normalizedUsers,
+    students,
+    teachers,
+    classes: classes || [],
+    schoolRows,
+    activeStudents,
+    teacherRows,
+    activeTeachers,
+    totalAttempts: students.reduce((sum, student) => sum + Number(student.totalAttempts || 0), 0)
+  };
+}
+
+function adminMatchesKeyword(row, keyword, fields) {
+  if (!keyword) return true;
+  return fields.map((field) => row[field] || "").join(" ").toLowerCase().includes(keyword);
+}
+
+function renderAdminDashboard() {
+  const model = buildAdminDashboardModel(adminDashboardDataCache.users, adminDashboardDataCache.classes);
+  const keyword = ($("adminSearchInput") ? $("adminSearchInput").value : "").toLowerCase().trim();
+
+  if ($("adminTotalUsers")) $("adminTotalUsers").textContent = model.users.length;
+  if ($("adminTotalStudents")) $("adminTotalStudents").textContent = model.students.length;
+  if ($("adminTotalTeachers")) $("adminTotalTeachers").textContent = model.teachers.length;
+  if ($("adminTotalClasses")) $("adminTotalClasses").textContent = model.classes.length;
+  if ($("adminActiveSchools")) $("adminActiveSchools").textContent = model.schoolRows.filter((s) => s.activeStudents > 0 || s.totalAttempts > 0).length;
+  if ($("adminActiveStudents")) $("adminActiveStudents").textContent = model.activeStudents.length;
+  if ($("adminActiveTeachers")) $("adminActiveTeachers").textContent = model.activeTeachers.length;
+  if ($("adminTotalAttempts")) $("adminTotalAttempts").textContent = model.totalAttempts;
+
+  const schoolRows = model.schoolRows.filter((row) =>
+    adminMatchesKeyword(row, keyword, ["schoolName", "stateName"])
+  );
+  if ($("adminSchoolTable")) {
+    $("adminSchoolTable").innerHTML = schoolRows.length ? schoolRows.map((row) => `
+      <tr>
+        <td><b>${adminEsc(row.schoolName)}</b></td>
+        <td>${adminEsc(row.stateName)}</td>
+        <td>${row.teachers}</td>
+        <td>${row.students}</td>
+        <td>${row.classes}</td>
+        <td>${row.activeStudents}</td>
+        <td>${row.totalAttempts}</td>
+        <td>${row.activeScore}</td>
+      </tr>
+    `).join("") : `<tr><td colspan="8">No school data found.</td></tr>`;
+  }
+
+  const studentRows = model.activeStudents.filter((student) =>
+    adminMatchesKeyword(student, keyword, ["username", "fullName", "studentClass", "className", "schoolName", "stateName", "status"])
+  );
+  if ($("adminStudentTable")) {
+    $("adminStudentTable").innerHTML = studentRows.length ? studentRows.map((student) => `
+      <tr>
+        <td><b>${adminEsc(student.fullName || student.username || "-")}</b><br><small>${adminEsc(student.username || "")}</small></td>
+        <td>${adminEsc(student.studentClass || student.className || "-")}</td>
+        <td>${adminEsc(student.schoolName || "-")}</td>
+        <td>${adminEsc(student.stateName || "-")}</td>
+        <td>${student.totalAttempts}</td>
+        <td>${student.sifirCount || 0}</td>
+        <td>${student.activeDaysCount}</td>
+        <td>${student.coins || 0}</td>
+        <td>${student.xp || 0}</td>
+        <td>${adminEsc(student.status || "-")}</td>
+      </tr>
+    `).join("") : `<tr><td colspan="10">No active student data found.</td></tr>`;
+  }
+
+  const teacherRows = model.activeTeachers.filter((teacher) =>
+    adminMatchesKeyword(teacher, keyword, ["username", "name", "schoolName", "stateName"])
+  );
+  if ($("adminTeacherTable")) {
+    $("adminTeacherTable").innerHTML = teacherRows.length ? teacherRows.map((teacher) => `
+      <tr>
+        <td><b>${adminEsc(teacher.name || teacher.username || "-")}</b><br><small>${adminEsc(teacher.username || "")}</small></td>
+        <td>${adminEsc(teacher.schoolName || "-")}</td>
+        <td>${adminEsc(teacher.stateName || "-")}</td>
+        <td>${teacher.classCount}</td>
+        <td>${teacher.studentCount}</td>
+        <td>${teacher.activeStudents}</td>
+        <td>${teacher.totalAttempts}</td>
+        <td>${teacher.activeScore}</td>
+      </tr>
+    `).join("") : `<tr><td colspan="8">No active teacher data found.</td></tr>`;
+  }
+
+  const userRows = model.users.filter((user) =>
+    adminMatchesKeyword(user, keyword, ["username", "fullName", "role", "studentClass", "className", "schoolName", "stateName", "status"])
+  ).sort((a, b) => Number(b.activeScore || 0) - Number(a.activeScore || 0));
+  if ($("adminUserTable")) {
+    $("adminUserTable").innerHTML = userRows.length ? userRows.map((user) => `
+      <tr>
+        <td>${adminEsc(user.role || "-")}</td>
+        <td><b>${adminEsc(user.fullName || user.username || "-")}</b><br><small>${adminEsc(user.username || "")}</small></td>
+        <td>${adminEsc(user.studentClass || user.className || "-")}</td>
+        <td>${adminEsc(user.schoolName || "-")}</td>
+        <td>${adminEsc(user.stateName || "-")}</td>
+        <td>${user.coins || 0}</td>
+        <td>${user.xp || 0}</td>
+        <td>${user.activeScore || 0}</td>
+        <td>${adminEsc(user.status || "-")}</td>
+        <td>${adminEsc(user.classCode || "-")}</td>
+      </tr>
+    `).join("") : `<tr><td colspan="10">No user data found.</td></tr>`;
+  }
+}
+
+async function loadAdminDashboard() {
+  if ($("adminUserTable")) $("adminUserTable").innerHTML = `<tr><td colspan="10">Loading admin data...</td></tr>`;
+  if ($("adminSchoolTable")) $("adminSchoolTable").innerHTML = `<tr><td colspan="8">Loading admin data...</td></tr>`;
+  if ($("adminStudentTable")) $("adminStudentTable").innerHTML = `<tr><td colspan="10">Loading admin data...</td></tr>`;
+  if ($("adminTeacherTable")) $("adminTeacherTable").innerHTML = `<tr><td colspan="8">Loading admin data...</td></tr>`;
+
+  if (typeof window.getAdminDashboardData !== "function") {
+    if ($("adminUserTable")) $("adminUserTable").innerHTML = `<tr><td colspan="10">Firebase admin function not ready.</td></tr>`;
+    return;
+  }
+
+  const result = await window.getAdminDashboardData();
+  if (!result.ok) {
+    const message = adminEsc(result.message || "Failed to load admin data.");
+    if ($("adminUserTable")) $("adminUserTable").innerHTML = `<tr><td colspan="10">${message}</td></tr>`;
+    if ($("adminSchoolTable")) $("adminSchoolTable").innerHTML = `<tr><td colspan="8">${message}</td></tr>`;
+    if ($("adminStudentTable")) $("adminStudentTable").innerHTML = `<tr><td colspan="10">${message}</td></tr>`;
+    if ($("adminTeacherTable")) $("adminTeacherTable").innerHTML = `<tr><td colspan="8">${message}</td></tr>`;
+    return;
+  }
+
+  adminDashboardDataCache = {
+    users: result.users || [],
+    classes: result.classes || []
+  };
+  renderAdminDashboard();
+}
+
+async function showAdminDashboard(account) {
+  showWelcomeThen("admin", async () => {
+    await showAdminDashboardReal(account);
+  });
+}
+
+async function showAdminDashboardReal(account) {
+  currentAccountRole = "admin";
+  window.currentAccountRole = currentAccountRole;
+  currentAccountData = account || {};
+  hideSessionPages();
+
+  const dash = $("adminDashboard");
+  if (dash) dash.classList.remove("hidden");
+
+  if ($("adminWelcome")) {
+    $("adminWelcome").textContent = "Welcome " + (account.fullName || account.username || currentUser) + " - system-wide activity overview";
+  }
+
+  await loadAdminDashboard();
 }
 
 
@@ -457,6 +858,21 @@ async function openStudentDetail(username) {
 
 
 document.addEventListener("click", async (event) => {
+  if (event.target && event.target.closest && event.target.closest("#openSifir2DigitButton")) {
+    login(currentUser, currentStudentDisplayName || currentUser);
+    return;
+  }
+
+  if (event.target && event.target.closest && event.target.closest("#openSifirChallengeButton")) {
+    showStudentChallengePage();
+    return;
+  }
+
+  if (event.target && event.target.closest && event.target.closest("#studentMenuButton, #challengeMenuButton")) {
+    showStudentActivityPage(currentUser, currentStudentDisplayName || currentUser);
+    return;
+  }
+
   if (event.target && event.target.id === "createClassButton") {
     const className = $("newClassName").value.trim();
     const schoolName = $("newClassSchool").value.trim();
@@ -482,11 +898,19 @@ document.addEventListener("click", async (event) => {
   if (event.target && event.target.id === "reloadDashboardButton") {
     await loadTeacherDashboard();
   }
+
+  if (event.target && event.target.id === "adminReloadButton") {
+    await loadAdminDashboard();
+  }
 });
 
 document.addEventListener("input", (event) => {
   if (event.target && event.target.id === "teacherSearchInput") {
     renderTeacherStudents(teacherDashboardStudentsCache || []);
+  }
+
+  if (event.target && event.target.id === "adminSearchInput") {
+    renderAdminDashboard();
   }
 });
 
@@ -1091,21 +1515,29 @@ let currentUser = "";
 
     function setAuthMode(mode) {
       authMode = mode;
+      const isSignup = mode === "signup";
+      const isAdmin = mode === "admin";
       $("loginTab").classList.toggle("active", mode === "login");
-      $("signupTab").classList.toggle("active", mode === "signup");
-      $("signupFields").classList.toggle("hidden", mode !== "signup");
-      if ($("signupProfileFields")) $("signupProfileFields").classList.toggle("hidden", mode !== "signup");
-      if ($("roleFields")) $("roleFields").classList.toggle("hidden", mode !== "signup");
+      $("signupTab").classList.toggle("active", isSignup);
+      if ($("adminLoginTab")) $("adminLoginTab").classList.toggle("active", isAdmin);
+      $("signupFields").classList.toggle("hidden", !isSignup);
+      if ($("signupProfileFields")) $("signupProfileFields").classList.toggle("hidden", !isSignup);
+      if ($("roleFields")) $("roleFields").classList.toggle("hidden", !isSignup);
       toggleSignupRoleFields();
-      if ($("signupProfileFields")) $("signupProfileFields").classList.toggle("hidden", mode !== "signup");
-      $("authButton").textContent = mode === "login" ? "LOGIN" : "REGISTER";
-      $("loginSubtitle").textContent = mode === "login" ? "Log in to start building 2-digit multiplication." : "Register a new account to use the app.";
+      if ($("signupProfileFields")) $("signupProfileFields").classList.toggle("hidden", !isSignup);
+      $("authButton").textContent = isAdmin ? "LOGIN ADMIN" : mode === "login" ? "LOGIN" : "REGISTER";
+      $("loginSubtitle").textContent = isAdmin
+        ? "Admin login is only for existing admin accounts."
+        : mode === "login"
+          ? "Log in to start building 2-digit multiplication."
+          : "Register a new student or teacher account to use the app.";
       $("loginError").textContent = "";
     }
 
     $("loginTab").onclick = () => setAuthMode("login");
     $("signupTab").onclick = () => setAuthMode("signup");
-$("authForm").onsubmit = async (e) => {
+    if ($("adminLoginTab")) $("adminLoginTab").onclick = () => setAuthMode("admin");
+    $("authForm").onsubmit = async (e) => {
       e.preventDefault();
 
       const user = $("username").value.trim();
@@ -1122,7 +1554,6 @@ $("authForm").onsubmit = async (e) => {
           const demoData = await window.getFirebaseSyncData(user);
           if (demoData.ok && demoData.account) {
             currentUser = user;
-      window.currentUser = user;
             window.currentUser = user;
             applyFirebaseAccountData(demoData.account);
             currentClassCode = (demoData.account.classCode || '').toUpperCase();
@@ -1139,6 +1570,10 @@ $("authForm").onsubmit = async (e) => {
         const studentClass = $("studentClass") ? $("studentClass").value.trim() : "";
         const schoolName = $("schoolName") ? $("schoolName").value.trim() : "";
         const stateName = $("stateName") ? $("stateName").value.trim() : "";
+        const schoolCode = $("schoolCode") ? $("schoolCode").value.trim().toUpperCase() : "";
+        const district = $("districtName") ? $("districtName").value.trim() : "";
+        const gender = $("gender") ? $("gender").value.trim() : "";
+        const email = $("email") ? $("email").value.trim() : "";
         const classCode = $("classCodeInput") ? $("classCodeInput").value.trim().toUpperCase() : "";
         const teacherCode = $("teacherCodeInput") ? $("teacherCodeInput").value.trim() : "";
 
@@ -1152,8 +1587,18 @@ $("authForm").onsubmit = async (e) => {
           return;
         }
 
+        if (role === "teacher" && (!schoolCode || !birthDate || !district || !gender || !email)) {
+          $("loginError").textContent = "Teachers must complete school code, date of birth, district, gender and email.";
+          return;
+        }
+
         if (role === "teacher" && teacherCode !== "GURU123") {
           $("loginError").textContent = "Invalid teacher code.";
+          return;
+        }
+
+        if (role === "admin") {
+          $("loginError").textContent = "Admin registration is disabled. Please use Admin Login.";
           return;
         }
 
@@ -1172,7 +1617,23 @@ $("authForm").onsubmit = async (e) => {
           return;
         }
 
-        const profile = { role, fullName, birthDate, studentClass, schoolName, stateName, classCode, teacherCode };
+        const profile = {
+          role,
+          fullName,
+          email: role === "teacher" ? email : "",
+          birthDate,
+          studentClass,
+          schoolName,
+          schoolInstitution: schoolName,
+          workplace: schoolName,
+          schoolCode: role === "teacher" ? schoolCode : "",
+          stateName,
+          state: stateName,
+          district: role === "teacher" ? district : "",
+          gender: role === "teacher" ? gender : "",
+          classCode,
+          teacherCode
+        };
 
         $("loginError").textContent = "Creating account...";
         const result = await window.registerAccountFirebase(user, pass, profile);
@@ -1193,17 +1654,34 @@ $("authForm").onsubmit = async (e) => {
         const result = await window.loginAccountFirebase(user, pass);
 
         if (result.ok) {
-          currentUser = user;
-          window.currentUser = user;
+          const loggedInUser = result.username || user;
+          currentUser = loggedInUser;
+          window.currentUser = loggedInUser;
           currentAccountData = result.account || {};
           currentClassCode = (currentAccountData.classCode || '').toUpperCase();
           currentAccountRole = currentAccountData.role || "student";
+          window.currentAccountRole = currentAccountRole;
+
+          if (authMode === "admin") {
+            if (currentAccountRole !== "admin") {
+              $("loginError").textContent = "Only admin accounts can use Admin Login.";
+              return;
+            }
+            await showAdminDashboard(currentAccountData);
+            return;
+          }
+
+          if (currentAccountRole === "admin") {
+            $("loginError").textContent = "Admin accounts must use the Admin Login button.";
+            return;
+          }
+
           applyFirebaseAccountData(currentAccountData);
 
           if (currentAccountRole === "teacher") {
             await showTeacherDashboard(currentAccountData);
           } else {
-            showStudentApp(user, result.username || user);
+            showStudentApp(loggedInUser, currentAccountData.fullName || loggedInUser);
           }
           return;
         }
@@ -1216,21 +1694,8 @@ $("authForm").onsubmit = async (e) => {
     };
 
     function login(user, displayName) {
-      currentUser = user;
-      window.currentUser = user;
-
-      saveToFirebaseSafe({
-        username: currentUser,
-        action: "login",
-        loggedInAt: new Date().toISOString()
-      });
-
-      syncCurrentAccountToFirebase({
-        lastLoginAt: new Date().toISOString()
-      });
-      coins = Number(coins || totalCoins());
-      $("welcomeCard").textContent = "Welcome " + displayName;
-      $("loginPage").classList.add("hidden");
+      prepareStudentSession(user, displayName);
+      hideSessionPages();
       $("app").classList.remove("hidden");
       renderAll();
       updateStats();
